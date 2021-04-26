@@ -331,7 +331,7 @@ const paperback_extensions_common_1 = require("paperback-extensions-common");
 const Madara_1 = require("../Madara");
 const ARANGSCANS_DOMAIN = "https://arangscans.com";
 exports.ArangScansInfo = {
-    version: '1.1.0',
+    version: '1.1.3',
     name: 'ArangScans',
     description: 'Extension that pulls manga from arangscans.com',
     author: 'GameFuzzy',
@@ -352,6 +352,7 @@ class ArangScans extends Madara_1.Madara {
         this.baseUrl = ARANGSCANS_DOMAIN;
         this.languageCode = paperback_extensions_common_1.LanguageCode.ENGLISH;
         this.userAgentRandomizer = '';
+        this.chapterDetailsParam = "?style=list";
     }
 }
 exports.ArangScans = ArangScans;
@@ -391,6 +392,13 @@ class Madara extends paperback_extensions_common_1.Source {
          */
         this.hasAdvancedSearchPage = false;
         /**
+         * Different Madara sources might require a extra param in order for the images to be parsed.
+         * Eg. for https://arangscans.com/manga/tesla-note/chapter-3/?style=list "?style=list" would be the param
+         * added to the end of the URL. This will set the page in list style and is needed in order for the
+         * images to be parsed. Params can be addded if required.
+         */
+        this.chapterDetailsParam = "";
+        /**
          * Different Madara sources might have a slightly different selector which is required to parse out
          * each page while on a chapter page. This is the selector
          * which is looped over. This may be overridden if required.
@@ -429,7 +437,7 @@ class Madara extends paperback_extensions_common_1.Source {
                 }),
                 data: this.urlEncodeObject({
                     "action": "manga_get_chapters",
-                    "manga": mangaId
+                    "manga": yield this.getNumericId(mangaId)
                 })
             });
             let data = yield this.requestManager.schedule(request, 1);
@@ -443,8 +451,9 @@ class Madara extends paperback_extensions_common_1.Source {
             const request = createRequestObject({
                 url: `${this.baseUrl}/${this.sourceTraversalPathName}/${chapterId}/`,
                 method: 'GET',
-                headers: this.constructHeaders({}),
-                cookies: [createCookie({ name: 'wpmanga-adault', value: "1", domain: this.baseUrl })]
+                headers: this.constructHeaders(),
+                cookies: [createCookie({ name: 'wpmanga-adault', value: "1", domain: this.baseUrl })],
+                param: this.chapterDetailsParam
             });
             let data = yield this.requestManager.schedule(request, 1);
             this.CloudFlareError(data.status);
@@ -459,14 +468,14 @@ class Madara extends paperback_extensions_common_1.Source {
                 request = createRequestObject({
                     url: `${this.baseUrl}/?s=&post_type=wp-manga`,
                     method: 'GET',
-                    headers: this.constructHeaders({})
+                    headers: this.constructHeaders()
                 });
             }
             else {
                 request = createRequestObject({
                     url: `${this.baseUrl}/`,
                     method: 'GET',
-                    headers: this.constructHeaders({})
+                    headers: this.constructHeaders()
                 });
             }
             let data = yield this.requestManager.schedule(request, 1);
@@ -610,17 +619,16 @@ class Madara extends paperback_extensions_common_1.Source {
         return createRequestObject({
             url: `${this.baseUrl}`,
             method: 'GET',
-            headers: this.constructHeaders({})
+            headers: this.constructHeaders()
         });
     }
-    // Only used in the test wrapper
     getNumericId(mangaId) {
         var _a;
         return __awaiter(this, void 0, void 0, function* () {
             const request = createRequestObject({
                 url: `${this.baseUrl}/${this.sourceTraversalPathName}/${mangaId}/`,
                 method: 'GET',
-                headers: this.constructHeaders({})
+                headers: this.constructHeaders()
             });
             let data = yield this.requestManager.schedule(request, 1);
             this.CloudFlareError(data.status);
@@ -691,6 +699,7 @@ class Madara extends paperback_extensions_common_1.Source {
         return time;
     }
     constructHeaders(headers, refererPath) {
+        headers = headers !== null && headers !== void 0 ? headers : {};
         if (this.userAgentRandomizer !== '') {
             headers["user-agent"] = this.userAgentRandomizer;
         }
@@ -728,7 +737,7 @@ const paperback_extensions_common_1 = require("paperback-extensions-common");
 class Parser {
     parseMangaDetails($, mangaId) {
         var _a, _b;
-        let numericId = $('a.wp-manga-action-button').attr('data-post');
+        let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1];
         let title = this.decodeHTMLEntity($('div.post-title h1').first().text().replace(/NEW/, '').replace(/HOT/, '').replace('\\n', '').trim());
         let author = this.decodeHTMLEntity($('div.author-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown');
         let artist = this.decodeHTMLEntity($('div.artist-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown');
@@ -757,7 +766,7 @@ class Parser {
             throw (`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`);
         }
         return createManga({
-            id: numericId,
+            id: mangaId,
             titles: [title],
             image: image,
             author: author,
@@ -766,11 +775,12 @@ class Parser {
             desc: summary,
             status: isOngoing ? paperback_extensions_common_1.MangaStatus.ONGOING : paperback_extensions_common_1.MangaStatus.COMPLETED,
             rating: Number(rating),
-            hentai: hentai
+            //hentai: hentai
+            hentai: false
         });
     }
     parseChapterList($, mangaId, source) {
-        var _a, _b, _c, _d, _e, _f;
+        var _a, _b, _c, _d;
         let chapters = [];
         // Capture the manga title, as this differs from the ID which this function is fed
         let realTitle = (_a = $('a', $('li.wp-manga-chapter  ').first()).attr('href')) === null || _a === void 0 ? void 0 : _a.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').toLowerCase().replace(/\/chapter.*/, '');
@@ -780,16 +790,16 @@ class Parser {
         // For each available chapter..
         for (let obj of $('li.wp-manga-chapter  ').toArray()) {
             let id = ($('a', $(obj)).first().attr('href') || '').replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '');
-            let chapNum = Number((_d = (_c = (_b = $('a', $(obj)).first().attr('href')) === null || _b === void 0 ? void 0 : _b.toLowerCase()) === null || _c === void 0 ? void 0 : _c.match(/chapter-\D*(\d*\.?\d*)/)) === null || _d === void 0 ? void 0 : _d.pop());
+            let chapNum = Number((_b = id.match(/\D*(\d*\.?\d*)$/)) === null || _b === void 0 ? void 0 : _b.pop());
             let chapName = $('a', $(obj)).first().text();
-            let releaseDate = $('i', $(obj)).length > 0 ? $('i', $(obj)).text() : (_e = $('.c-new-tag a', $(obj)).attr('title')) !== null && _e !== void 0 ? _e : '';
+            let releaseDate = $('i', $(obj)).length > 0 ? $('i', $(obj)).text() : (_c = $('.c-new-tag a', $(obj)).attr('title')) !== null && _c !== void 0 ? _c : '';
             if (typeof id === 'undefined') {
                 throw (`Could not parse out ID when getting chapters for ${mangaId}`);
             }
             chapters.push(createChapter({
                 id: id,
                 mangaId: mangaId,
-                langCode: (_f = source.languageCode) !== null && _f !== void 0 ? _f : paperback_extensions_common_1.LanguageCode.UNKNOWN,
+                langCode: (_d = source.languageCode) !== null && _d !== void 0 ? _d : paperback_extensions_common_1.LanguageCode.UNKNOWN,
                 chapNum: Number.isNaN(chapNum) ? 0 : chapNum,
                 name: Number.isNaN(chapNum) ? chapName : undefined,
                 time: source.convertTime(releaseDate)
