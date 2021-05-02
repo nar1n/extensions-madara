@@ -589,7 +589,6 @@ class Madara extends paperback_extensions_common_1.Source {
         });
     }
     getNumericId(mangaId) {
-        var _a;
         return __awaiter(this, void 0, void 0, function* () {
             const request = createRequestObject({
                 url: `${this.baseUrl}/${this.sourceTraversalPathName}/${mangaId}/`,
@@ -599,7 +598,7 @@ class Madara extends paperback_extensions_common_1.Source {
             let data = yield this.requestManager.schedule(request, 1);
             this.CloudFlareError(data.status);
             let $ = this.cheerio.load(data.data);
-            let numericId = (_a = $('link[rel="shortlink"]').attr('href')) === null || _a === void 0 ? void 0 : _a.replace(`${this.baseUrl}/?p=`, '');
+            let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1];
             if (!numericId) {
                 throw (`Failed to parse the numeric ID for ${mangaId}`);
             }
