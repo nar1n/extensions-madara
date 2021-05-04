@@ -632,7 +632,7 @@ class Madara extends paperback_extensions_common_1.Source {
             let $ = this.cheerio.load(data.data);
             let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1];
             if (!numericId) {
-                throw (`Failed to parse the numeric ID for ${mangaId}`);
+                throw new Error(`Failed to parse the numeric ID for ${mangaId}`);
             }
             return numericId;
         });
@@ -735,7 +735,7 @@ class Parser {
     parseMangaDetails($, mangaId) {
         var _a, _b;
         let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1];
-        let title = this.decodeHTMLEntity($('div.post-title h1').first().text().replace(/NEW/, '').replace(/HOT/, '').replace('\\n', '').trim());
+        let title = this.decodeHTMLEntity($('div.post-title h1').children().remove().end().text().trim());
         let author = this.decodeHTMLEntity($('div.author-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown');
         let artist = this.decodeHTMLEntity($('div.artist-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown');
         let summary = this.decodeHTMLEntity($('div.description-summary').first().text()).replace('Show more', '').trim();
@@ -755,12 +755,12 @@ class Parser {
         let tagSections = [createTagSection({ id: '0', label: 'genres', tags: genres })];
         // If we cannot parse out the data-id for this title, we cannot complete subsequent requests
         if (!numericId) {
-            throw (`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`);
+            throw new Error(`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`);
         }
         // If we do not have a valid image, something is wrong with the generic parsing logic. A source should always remedy this with
         // a custom implementation.
         if (!image) {
-            throw (`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`);
+            throw new Error(`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`);
         }
         return createManga({
             id: mangaId,
@@ -782,7 +782,7 @@ class Parser {
         // Capture the manga title, as this differs from the ID which this function is fed
         let realTitle = (_a = $('a', $('li.wp-manga-chapter  ').first()).attr('href')) === null || _a === void 0 ? void 0 : _a.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').toLowerCase().replace(/\/chapter.*/, '');
         if (!realTitle) {
-            throw (`Failed to parse the human-readable title for ${mangaId}`);
+            throw new Error(`Failed to parse the human-readable title for ${mangaId}`);
         }
         // For each available chapter..
         for (let obj of $('li.wp-manga-chapter  ').toArray()) {
@@ -791,7 +791,7 @@ class Parser {
             let chapName = $('a', $(obj)).first().text();
             let releaseDate = $('i', $(obj)).length > 0 ? $('i', $(obj)).text() : (_c = $('.c-new-tag a', $(obj)).attr('title')) !== null && _c !== void 0 ? _c : '';
             if (typeof id === 'undefined') {
-                throw (`Could not parse out ID when getting chapters for ${mangaId}`);
+                throw new Error(`Could not parse out ID when getting chapters for ${mangaId}`);
             }
             chapters.push(createChapter({
                 id: id,
@@ -809,7 +809,7 @@ class Parser {
         for (let obj of $(selector).toArray()) {
             let page = this.getImageSrc($(obj));
             if (!page) {
-                throw (`Could not parse page for ${mangaId}/${chapterId}`);
+                throw new Error(`Could not parse page for ${mangaId}/${chapterId}`);
             }
             pages.push(page);
         }
@@ -850,7 +850,7 @@ class Parser {
                 if (id.includes(source.baseUrl.replace(/\/$/, '')))
                     continue;
                 // Something went wrong with our parsing, return a detailed error
-                throw (`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`);
+                throw new Error(`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`);
             }
             results.push(createMangaTile({
                 id: id,
@@ -868,7 +868,7 @@ class Parser {
             let title = this.decodeHTMLEntity($('a', $('h3.h5', $(obj))).text());
             let id = (_b = $('a', $('h3.h5', $(obj))).attr('href')) === null || _b === void 0 ? void 0 : _b.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '');
             if (!id || !title || !image) {
-                throw (`Failed to parse homepage sections for ${source.baseUrl}/`);
+                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/`);
             }
             items.push(createMangaTile({
                 id: id,
@@ -880,7 +880,8 @@ class Parser {
     }
     filterUpdatedManga($, time, ids, source) {
         var _a, _b, _c, _d;
-        let passedReferenceTime = false;
+        let passedReferenceTimePrior = false;
+        let passedReferenceTimeCurrent = false;
         let updatedManga = [];
         for (let obj of $('div.page-item-detail').toArray()) {
             let id = (_b = (_a = $('a', $('h3.h5', obj)).attr('href')) === null || _a === void 0 ? void 0 : _a.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '')) !== null && _b !== void 0 ? _b : '';
@@ -893,8 +894,8 @@ class Parser {
                 // Use span
                 mangaTime = source.convertTime((_d = $('span', $('.chapter-item', obj).first()).last().text()) !== null && _d !== void 0 ? _d : '');
             }
-            passedReferenceTime = mangaTime <= time;
-            if (!passedReferenceTime) {
+            passedReferenceTimeCurrent = mangaTime <= time;
+            if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
                 if (ids.includes(id)) {
                     updatedManga.push(id);
                 }
@@ -902,10 +903,11 @@ class Parser {
             else
                 break;
             if (typeof id === 'undefined') {
-                throw (`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`);
+                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`);
             }
+            passedReferenceTimePrior = passedReferenceTimeCurrent;
         }
-        if (!passedReferenceTime) {
+        if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
             return { updates: updatedManga, loadNextPage: true };
         }
         else {
