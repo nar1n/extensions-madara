@@ -13,7 +13,7 @@ export class Parser {
 
     parseMangaDetails($: CheerioSelector, mangaId: string): Manga {
         let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1]
-        let title = this.decodeHTMLEntity($('div.post-title h1').first().text().replace(/NEW/, '').replace(/HOT/, '').replace('\\n', '').trim())
+        let title = this.decodeHTMLEntity($('div.post-title h1').children().remove().end().text().trim())
         let author = this.decodeHTMLEntity($('div.author-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown')
         let artist = this.decodeHTMLEntity($('div.artist-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown')
         let summary = this.decodeHTMLEntity($('div.description-summary').first().text()).replace('Show more', '').trim()
@@ -34,13 +34,13 @@ export class Parser {
 
         // If we cannot parse out the data-id for this title, we cannot complete subsequent requests
         if (!numericId) {
-            throw(`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`)
+            throw new Error(`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`)
         }
 
         // If we do not have a valid image, something is wrong with the generic parsing logic. A source should always remedy this with
         // a custom implementation.
         if(!image) {
-            throw(`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`)
+            throw new Error(`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`)
         }
 
         return createManga({
@@ -65,7 +65,7 @@ export class Parser {
         let realTitle = $('a', $('li.wp-manga-chapter  ').first()).attr('href')?.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').toLowerCase().replace(/\/chapter.*/, '')
 
         if (!realTitle) {
-            throw(`Failed to parse the human-readable title for ${mangaId}`)
+            throw new Error(`Failed to parse the human-readable title for ${mangaId}`)
         }
 
         // For each available chapter..
@@ -76,7 +76,7 @@ export class Parser {
             let releaseDate = $('i', $(obj)).length > 0 ? $('i', $(obj)).text() : $('.c-new-tag a', $(obj)).attr('title') ?? ''
 
             if (typeof id === 'undefined') {
-                throw(`Could not parse out ID when getting chapters for ${mangaId}`)
+                throw new Error(`Could not parse out ID when getting chapters for ${mangaId}`)
             }
             chapters.push(createChapter({
                 id: id,
@@ -97,7 +97,7 @@ export class Parser {
         for (let obj of $(selector).toArray()) {
             let page = this.getImageSrc($(obj))
             if (!page) {
-                throw(`Could not parse page for ${mangaId}/${chapterId}`)
+                throw new Error(`Could not parse page for ${mangaId}/${chapterId}`)
             }
 
             pages.push(page)
@@ -139,7 +139,7 @@ export class Parser {
             if (!id || !image || !title.text) {
                 if(id.includes(source.baseUrl.replace(/\/$/, ''))) continue
                 // Something went wrong with our parsing, return a detailed error
-                throw(`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`)
+                throw new Error(`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`)
             }
 
             results.push(createMangaTile({
@@ -160,7 +160,7 @@ export class Parser {
             let id = $('a', $('h3.h5', $(obj))).attr('href')?.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '')
 
             if (!id || !title || !image) {
-                throw(`Failed to parse homepage sections for ${source.baseUrl}/`)
+                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/`)
             }
 
             items.push(createMangaTile({
@@ -173,7 +173,8 @@ export class Parser {
     }
 
     filterUpdatedManga($: CheerioSelector, time: Date, ids: string[], source: any): { updates: string[], loadNextPage: boolean } {
-        let passedReferenceTime = false
+        let passedReferenceTimePrior = false
+        let passedReferenceTimeCurrent = false
         let updatedManga: string[] = []
 
         for (let obj of $('div.page-item-detail').toArray()) {
@@ -186,18 +187,19 @@ export class Parser {
                 // Use span
                 mangaTime = source.convertTime($('span', $('.chapter-item', obj).first()).last().text() ?? '')
             }
-            passedReferenceTime = mangaTime <= time
-            if (!passedReferenceTime) {
+            passedReferenceTimeCurrent = mangaTime <= time
+            if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
                 if (ids.includes(id)) {
                     updatedManga.push(id)
                 }
             } else break
 
             if (typeof id === 'undefined') {
-                throw(`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`)
+                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`)
             }
+            passedReferenceTimePrior = passedReferenceTimeCurrent
         }
-        if (!passedReferenceTime) {
+        if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
             return {updates: updatedManga, loadNextPage: true}
         } else {
             return {updates: updatedManga, loadNextPage: false}
