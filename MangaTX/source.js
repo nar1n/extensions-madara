@@ -369,7 +369,7 @@ class Madara extends paperback_extensions_common_1.Source {
          * each page while on a chapter page. This is the selector
          * which is looped over. This may be overridden if required.
          */
-        this.chapterDetailsSelector = "div.page-break > img";
+        this.chapterDetailsSelector = "div.page-break > img:nth-child(1)";
         /**
          * Set to false if your source has individual buttons for each page as opposed to a 'LOAD MORE' button
          */
