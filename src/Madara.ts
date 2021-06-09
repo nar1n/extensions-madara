@@ -44,14 +44,6 @@ export abstract class Madara extends Source {
     hasAdvancedSearchPage: boolean = false
 
     /**
-     * The standard HTML selector that denotes an individual chapter row is <code>li.wp-manga-chapter</code>. However,
-     * some sources have an alternate class or HTML element that denotes a row. The selector should return each row,
-     * meaning that one node returned by the selector corresponds to one chapter row, so this should return 0 rows if
-     * the chapter has no chapters and 1 or more rows if the chapter has 1 or more chapters.
-     */
-    chapterRowSelector: string = "li.wp-manga-chapter"
-
-    /**
      * Different Madara sources might require a extra param in order for the images to be parsed.
      * Eg. for https://arangscans.com/manga/tesla-note/chapter-3/?style=list "?style=list" would be the param
      * added to the end of the URL. This will set the page in list style and is needed in order for the
@@ -88,7 +80,7 @@ export abstract class Madara extends Source {
         this.CloudFlareError(data.status)
         let $ = this.cheerio.load(data.data)
 
-        return await this.parser.parseMangaDetails($, mangaId, this)
+        return this.parser.parseMangaDetails($, mangaId)
     }
 
 
@@ -101,7 +93,7 @@ export abstract class Madara extends Source {
             }),
             data: this.urlEncodeObject({
                 "action": "manga_get_chapters",
-                "manga": mangaId
+                "manga": await this.getNumericId(mangaId)
             })
         })
 
@@ -116,7 +108,7 @@ export abstract class Madara extends Source {
         const request = createRequestObject({
             url: `${this.baseUrl}/${this.sourceTraversalPathName}/${chapterId}/`,
             method: 'GET',
-            headers: this.constructHeaders({}),
+            headers: this.constructHeaders(),
             cookies: [createCookie({name: 'wpmanga-adault', value: "1", domain: this.baseUrl})],
             param: this.chapterDetailsParam
         })
@@ -135,14 +127,14 @@ export abstract class Madara extends Source {
             request = createRequestObject({
                 url: `${this.baseUrl}/?s=&post_type=wp-manga`,
                 method: 'GET',
-                headers: this.constructHeaders({})
+                headers: this.constructHeaders()
             })
         }
         else {
             request = createRequestObject({
                 url: `${this.baseUrl}/`,
                 method: 'GET',
-                headers: this.constructHeaders({})
+                headers: this.constructHeaders()
             })
         }
 
@@ -180,13 +172,6 @@ export abstract class Madara extends Source {
 
             let data = await this.requestManager.schedule(request, 1)
             this.CloudFlareError(data.status)
-            /**
-             * Some sources return no data when there are no results for a page, but for whatever reason, this is
-             * interpreted as a signal to continue, leading to an infinite loop.
-             */
-            if (data.data.trim().length === 0){
-                return;
-            }
             let $ = this.cheerio.load(data.data)
 
             let updatedManga = this.parser.filterUpdatedManga($, time, ids, this)
@@ -298,24 +283,23 @@ export abstract class Madara extends Source {
         return createRequestObject({
             url: `${this.baseUrl}`,
             method: 'GET',
-            headers: this.constructHeaders({})
+            headers: this.constructHeaders()
         })
     }
 
-    // Only used in the test wrapper
     async getNumericId(mangaId: string): Promise<string> {
         const request = createRequestObject({
             url: `${this.baseUrl}/${this.sourceTraversalPathName}/${mangaId}/`,
             method: 'GET',
-            headers: this.constructHeaders({})
+            headers: this.constructHeaders()
         })
 
         let data = await this.requestManager.schedule(request, 1)
         this.CloudFlareError(data.status)
         let $ = this.cheerio.load(data.data)
-        let numericId = $('link[rel="shortlink"]').attr('href')?.replace(`${this.baseUrl}/?p=`, '')
+        let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1]
         if (!numericId) {
-            throw(`Failed to parse the numeric ID for ${mangaId}`)
+            throw new Error(`Failed to parse the numeric ID for ${mangaId}`)
         }
 
         return numericId
@@ -377,7 +361,8 @@ export abstract class Madara extends Source {
         return time
     }
 
-    constructHeaders(headers: any, refererPath?: string): any {
+    constructHeaders(headers?: any, refererPath?: string): any {
+        headers = headers ?? {}
         if(this.userAgentRandomizer !== '') {
             headers["user-agent"] = this.userAgentRandomizer
         }
