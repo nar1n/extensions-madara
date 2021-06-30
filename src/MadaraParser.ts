@@ -8,12 +8,28 @@ import {
     Tag,
     TagSection
 } from "paperback-extensions-common";
+import {Madara} from "./Madara";
 
 export class Parser {
 
-    parseMangaDetails($: CheerioSelector, mangaId: string): Manga {
-        let numericId = $("script#wp-manga-js-extra").get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1]
-        let title = this.decodeHTMLEntity($('div.post-title h1').children().remove().end().text().trim())
+    async parseMangaDetails($: CheerioSelector, mangaId: string, source: Madara): Promise<Manga> {
+        let numericId: string;
+        let numericIdSelector = $("script#wp-manga-js-extra");
+        /**
+         * This block used to be a one-liner, but this was changed in order to accommodate the edge case of Madara
+         * sources not reporting the numeric ID. Some Madara sources, especially ones dedicated to a specific manga, do
+         * not include the numeric ID, in which case the <code>$("script#wp-manga-js-extra")</code> statement would
+         * fail. However, these sources would override the {@link Madara.getNumericId} method, so we want to call that
+         * method as a backup if the numeric ID is not included in the manga details page.
+         *
+         * In most cases, you should not have to override this method.
+         */
+        if (numericIdSelector.length === 0) {
+            numericId = await source.getNumericId(mangaId);
+        } else {
+            numericId = numericIdSelector.get()[0].children[0].data.match('"manga_id":"(\\d+)"')[1]
+        }
+        let title = this.decodeHTMLEntity($('div.post-title h1').first().text().replace(/NEW/, '').replace(/HOT/, '').replace('\\n', '').trim())
         let author = this.decodeHTMLEntity($('div.author-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown')
         let artist = this.decodeHTMLEntity($('div.artist-content').first().text().replace("\\n", '').trim()).replace('Updating', 'Unknown')
         let summary = this.decodeHTMLEntity($('div.description-summary').first().text()).replace('Show more', '').trim()
@@ -34,17 +50,17 @@ export class Parser {
 
         // If we cannot parse out the data-id for this title, we cannot complete subsequent requests
         if (!numericId) {
-            throw new Error(`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`)
+            throw(`Could not parse out the data-id for ${mangaId} - This method might need overridden in the implementing source`)
         }
 
         // If we do not have a valid image, something is wrong with the generic parsing logic. A source should always remedy this with
         // a custom implementation.
         if(!image) {
-            throw new Error(`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`)
+            throw(`Could not parse out a valid image while parsing manga details for manga: ${mangaId}`)
         }
 
         return createManga({
-            id: mangaId,
+            id: numericId,
             titles: [title],
             image: image,
             author: author,
@@ -60,23 +76,23 @@ export class Parser {
 
     parseChapterList($: CheerioSelector, mangaId: string, source: any): Chapter[] {
         let chapters: Chapter[] = []
-
+        let selector = $(source.chapterRowSelector);
         // Capture the manga title, as this differs from the ID which this function is fed
-        let realTitle = $('a', $('li.wp-manga-chapter  ').first()).attr('href')?.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').toLowerCase().replace(/\/chapter.*/, '')
+        let realTitle = $('a', selector.first()).attr('href')?.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').toLowerCase().replace(/\/chapter.*/, '')
 
         if (!realTitle) {
-            throw new Error(`Failed to parse the human-readable title for ${mangaId}`)
+            throw(`Failed to parse the human-readable title for ${mangaId}`)
         }
 
         // For each available chapter..
-        for (let obj of $('li.wp-manga-chapter  ').toArray()) {
+        for (let obj of selector.toArray()) {
             let id = ($('a', $(obj)).first().attr('href') || '').replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '')
-            let chapNum = Number(id.match(/\D*(\d*\.?\d*)$/)?.pop())
+            let chapNum = Number($('a', $(obj)).first().attr('href')?.toLowerCase()?.match(/chapter-\D*(\d*\.?\d*)/)?.pop())
             let chapName = $('a', $(obj)).first().text()
             let releaseDate = $('i', $(obj)).length > 0 ? $('i', $(obj)).text() : $('.c-new-tag a', $(obj)).attr('title') ?? ''
 
             if (typeof id === 'undefined') {
-                throw new Error(`Could not parse out ID when getting chapters for ${mangaId}`)
+                throw(`Could not parse out ID when getting chapters for ${mangaId}`)
             }
             chapters.push(createChapter({
                 id: id,
@@ -87,8 +103,7 @@ export class Parser {
                 time: source.convertTime(releaseDate)
             }))
         }
-
-        return this.sortChapters(chapters)
+        return this.sortChapters(chapters);
     }
 
     parseChapterDetails($: CheerioSelector, mangaId: string, chapterId: string, selector: string): ChapterDetails {
@@ -97,7 +112,7 @@ export class Parser {
         for (let obj of $(selector).toArray()) {
             let page = this.getImageSrc($(obj))
             if (!page) {
-                throw new Error(`Could not parse page for ${mangaId}/${chapterId}`)
+                throw(`Could not parse page for ${mangaId}/${chapterId}`)
             }
 
             pages.push(page)
@@ -139,7 +154,7 @@ export class Parser {
             if (!id || !image || !title.text) {
                 if(id.includes(source.baseUrl.replace(/\/$/, ''))) continue
                 // Something went wrong with our parsing, return a detailed error
-                throw new Error(`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`)
+                throw(`Failed to parse searchResult for ${source.baseUrl} using ${source.searchMangaSelector} as a loop selector`)
             }
 
             results.push(createMangaTile({
@@ -160,7 +175,7 @@ export class Parser {
             let id = $('a', $('h3.h5', $(obj))).attr('href')?.replace(`${source.baseUrl}/${source.sourceTraversalPathName}/`, '').replace(/\/$/, '')
 
             if (!id || !title || !image) {
-                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/`)
+                throw(`Failed to parse homepage sections for ${source.baseUrl}/`)
             }
 
             items.push(createMangaTile({
@@ -173,8 +188,7 @@ export class Parser {
     }
 
     filterUpdatedManga($: CheerioSelector, time: Date, ids: string[], source: any): { updates: string[], loadNextPage: boolean } {
-        let passedReferenceTimePrior = false
-        let passedReferenceTimeCurrent = false
+        let passedReferenceTime = false
         let updatedManga: string[] = []
 
         for (let obj of $('div.page-item-detail').toArray()) {
@@ -187,19 +201,18 @@ export class Parser {
                 // Use span
                 mangaTime = source.convertTime($('span', $('.chapter-item', obj).first()).last().text() ?? '')
             }
-            passedReferenceTimeCurrent = mangaTime <= time
-            if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
+            passedReferenceTime = mangaTime <= time
+            if (!passedReferenceTime) {
                 if (ids.includes(id)) {
                     updatedManga.push(id)
                 }
             } else break
 
             if (typeof id === 'undefined') {
-                throw new Error(`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`)
+                throw(`Failed to parse homepage sections for ${source.baseUrl}/${source.homePage}/`)
             }
-            passedReferenceTimePrior = passedReferenceTimeCurrent
         }
-        if (!passedReferenceTimeCurrent || !passedReferenceTimePrior) {
+        if (!passedReferenceTime) {
             return {updates: updatedManga, loadNextPage: true}
         } else {
             return {updates: updatedManga, loadNextPage: false}
