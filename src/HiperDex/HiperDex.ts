@@ -20,10 +20,6 @@ export const HiperDexInfo: SourceInfo = {
         {
             text: "18+",
             type: TagType.YELLOW
-        },
-        {
-            text: "Cloudflare",
-            type: TagType.RED
         }
     ]
 }
